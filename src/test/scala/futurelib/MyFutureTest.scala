@@ -101,4 +101,27 @@ class MyFutureTest extends FunSuite with Matchers {
     tf.get should be(Success("NPE_IN_BG"))
   }
 
+  test("for comprehensions") {
+    def future1(num: Int) = {
+      MyFuture[Int] {
+        Thread.sleep(sleepTime)
+        num * 10
+      }
+    }
+
+    def future2(num: Int) = {
+      MyFuture[Int] {
+        Thread.sleep(sleepTime)
+        num + 10
+      }
+    }
+
+    val result = for {
+      firstFuture <- future1(10)
+      secondFuture <- future2(firstFuture)
+    } yield secondFuture
+
+    result.get should be(Success(110))
+  }
+
 }
