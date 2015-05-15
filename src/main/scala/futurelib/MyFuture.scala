@@ -18,7 +18,7 @@ class BackgroundRunner[T](body: => T) extends Thread {
       futureResultHolder.result = body
       futureResultHolder.isDone = true
     } catch {
-      case ex =>
+      case ex: Throwable =>
         futureResultHolder.isFailed = true
         futureResultHolder.error = ex
     }
@@ -34,45 +34,23 @@ class FutureResultHolder[T] {
   var isFailed: Boolean = false
 
   def get(): Try[T] = {
-    readyOrFailed()
-    if (isFailed)
-      Failure(error)
-    else
-      Success(result)
+    execute[Try[T]](Success(result))(Failure(error))
   }
 
   def map[U](f: T => U): FutureResultHolder[U] = {
-    readyOrFailed()
-    if (isFailed) {
-      new FutureResultHolder[U] {
-        isDone = self.isDone
-        error = self.error
-        isFailed = self.isFailed
-      }
-    }
-    else {
+    execute {
       MyFuture[U] {
         f(result)
       }
-    }
+    }(copy[U])
   }
 
   def flatMap[U](f: T => FutureResultHolder[U]): FutureResultHolder[U] = {
-    readyOrFailed()
-    if (isFailed) {
-      new FutureResultHolder[U] {
-        isDone = self.isDone
-        error = self.error
-        isFailed = self.isFailed
-      }
-    }
-    else
-      f(result)
+    execute(f(result))(copy[U]())
   }
 
   def recover(p: PartialFunction[Throwable, T]): FutureResultHolder[T] = {
-    readyOrFailed()
-    if (isFailed) {
+    execute(this) {
       if (p.isDefinedAt(error)) {
         MyFuture {
           p(error)
@@ -80,33 +58,35 @@ class FutureResultHolder[T] {
       } else {
         throw error
       }
-    } else {
-      this
     }
   }
 
   def recoverWith(p: PartialFunction[Throwable, FutureResultHolder[T]]): FutureResultHolder[T] = {
-    readyOrFailed()
-    if (isFailed) {
+    execute(this) {
       if (p.isDefinedAt(error)) {
         p(error)
       } else throw error
-    } else {
-      this
     }
   }
 
- def execute() = {
-   readyOrFailed()
-   if(isFailed) {
+  private def copy[U]() = {
+    new FutureResultHolder[U] {
+      isDone = self.isDone
+      error = self.error
+      isFailed = self.isFailed
+    }
+  }
 
-   }
-   else{
-     
-   }
- }
+  private def execute[U](successBody: => FutureResultHolder[U])(failureBody: => FutureResultHolder[U]): FutureResultHolder[U] = {
+    execute[FutureResultHolder[U]](successBody)(failureBody)
+  }
 
-  def readyOrFailed() {
+  private def execute[U](successBody: => U)(failureBody: => U): U = {
+    readyOrFailed()
+    if (isDone) successBody else failureBody
+  }
+
+  private def readyOrFailed() {
     if (!isDone && !isFailed) {
       Thread.sleep(100)
       readyOrFailed()
